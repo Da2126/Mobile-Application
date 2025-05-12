@@ -1,0 +1,419 @@
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Linking, Alert, TouchableOpacity, Image, Modal } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiConfig from '../config/apiConfig';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system'; // Importing FileSystem
+import Loading from './Loading';
+import { useLanguage } from '../../LanguageContext';  // Import the language context
+
+const AcceptTaskScreen = ({ route, navigation }) => {
+    const { taskNo } = route.params;
+    const [loading, setLoading] = useState(true);
+    const [companyName, setCompanyName] = useState('');
+    const [destination, setDestination] = useState('');
+    const [estimatedTime, setEstimatedTime] = useState('');
+    const [coords, setCoords] = useState({ latitude: 13.4125, longitude: 122.5621 });
+    const [photoUri, setPhotoUri] = useState(null);
+    const [photoName, setPhotoName] = useState(null);
+    const [modalVisible, setModalVisible] = useState(false);
+    const [taskStatus, setTaskStatus] = useState(null);
+
+    // Use language context
+    const { language } = useLanguage();
+
+    // Translations object
+    const translations = {
+        English: {
+            taskDetails: 'Task Details',
+            company: 'Company: ',
+            destination: 'Destination: ',
+            estimatedTime: 'Estimated Time: ',
+            acceptTask: 'Accept Task',
+            uploadProof: 'Upload Proof of Delivery',
+            completeTask: 'Complete Task',
+            remove: 'Remove',
+            successAccept: 'Task accepted successfully!',
+            successComplete: 'Task completed successfully!',
+            error: 'Error',
+            errorAccept: 'Failed to accept task. Please try again.',
+            errorComplete: 'Failed to complete task. Please try again.',
+            uploadProofBeforeComplete: 'Please upload proof of delivery before completing the task.', // New message
+        },
+        Filipino: {
+            taskDetails: 'Mga Detalye ng Gawain',
+            company: 'Kumpanya: ',
+            destination: 'Destinasyon: ',
+            estimatedTime: 'Tinatayang Oras: ',
+            acceptTask: 'Tanggapin ang Gawain',
+            uploadProof: 'Mag-upload ng Patunay ng Pagkakataon',
+            completeTask: 'Tapusin ang Gawain',
+            remove: 'Alisin',
+            successAccept: 'Matagumpay na tinanggap ang gawain!',
+            successComplete: 'Matagumpay na natapos ang gawain!',
+            error: 'Error',
+            errorAccept: 'Nabigong tanggapin ang gawain. Mangyaring subukan muli.',
+            errorComplete: 'Nabigong tapusin ang gawain. Mangyaring subukan muli.',
+            uploadProofBeforeComplete: 'Mangyaring mag-upload ng patunay ng pag-deliver bago tapusin ang gawain.', // New message
+        }
+    };
+
+    // Select the correct translation based on the current language
+    const translation = translations[language];
+
+    useEffect(() => {
+        const fetchTaskDetails = async () => {
+            try {
+                const token = await AsyncStorage.getItem('token');
+                if (!token) {
+                    throw new Error('Token is missing');
+                }
+                const response = await axios.get(`${apiConfig}/task/${taskNo}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (response.data) {
+                    setCompanyName(response.data.company_name);
+                    setDestination(response.data.destination);
+                    setEstimatedTime(response.data.estimated_time);
+
+                    // Assuming the response contains lat and long for destination
+                    if (response.data.destination_coords) {
+                        setCoords(response.data.destination_coords);
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching task details:', error);
+                Alert.alert(translation.error, 'Failed to fetch task details. Please try again.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const checkAcceptedTaskStatus = async () => {
+            const savedStatus = await AsyncStorage.getItem(`taskStatus_${taskNo}`);
+            setTaskStatus(savedStatus ? Number(savedStatus) : null);
+        };
+
+        fetchTaskDetails();
+        checkAcceptedTaskStatus();
+    }, [taskNo, translation]);
+
+    const handleMapPress = (event) => {
+        const { coordinate } = event.nativeEvent;
+        Alert.alert("Coordinates", `Latitude: ${coordinate.latitude}, Longitude: ${coordinate.longitude}`);
+    };
+
+    const pickImage = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Denied', 'Sorry, we need camera roll permission to upload images.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            quality: 1,
+        });
+        if (!result.canceled && result.assets.length > 0) {
+            const uri = result.assets[0].uri;
+            const name = uri.split('/').pop();
+            setPhotoUri(uri);
+            setPhotoName(name);
+        } else {
+            console.log('Image picker was cancelled or no assets found.');
+        }
+    };
+
+    const handleAcceptTask = async () => {
+        setLoading(true);
+        try {
+            const token = await AsyncStorage.getItem('token');
+            const now = new Date();
+            const formattedTime = now.toISOString();
+            await axios.put(`${apiConfig}/task/${taskNo}/accept`, {
+                status: 1,
+                ship_time: formattedTime,
+            }, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            await AsyncStorage.setItem(`taskStatus_${taskNo}`, '1');
+            setTaskStatus(1);
+            Alert.alert(translation.successAccept);
+        } catch (error) {
+            console.error('Error accepting task:', error);
+            Alert.alert(translation.error, translation.errorAccept);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCompleteTask = async () => {
+        setLoading(true);
+        try {
+            const token = await AsyncStorage.getItem('token');
+            if (!photoUri) {
+                // Use the translation for the alert message
+                Alert.alert(translation.error, translation.uploadProofBeforeComplete);
+                return;
+            }
+
+            // Convert the image URI to Base64 string
+            const base64Image = await FileSystem.readAsStringAsync(photoUri, {
+                encoding: FileSystem.EncodingType.Base64
+            });
+
+            const data = {
+                proof_image: base64Image, // Send the Base64 image string
+            };
+
+            const response = await axios.put(`${apiConfig}/task/${taskNo}/complete`, data, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (response.status === 200) {
+                setPhotoUri(null);
+                setPhotoName(null);
+                setTaskStatus(2); // Update task status to 2 (completed)
+                Alert.alert(translation.successComplete);
+                navigation.navigate('task'); // Navigate to the task list or details page
+            } else {
+                Alert.alert(translation.error, translation.errorComplete);
+            }
+        } catch (error) {
+            console.error('Error completing task:', error.response ? error.response.data : error);
+            Alert.alert(translation.error, translation.errorComplete);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (loading) {
+        return <Loading />;
+    }
+
+    return (
+        <View style={styles.container}>
+            <View style={styles.upperHalf}>
+                <TouchableOpacity onPress={() => navigation.navigate('taskHistory')} style={styles.iconContainer}>
+                    <Image source={require("../assets/left-arrow.png")} style={styles.icon} />
+                </TouchableOpacity>
+                <Text style={styles.header}>{translation.taskDetails}</Text>
+            </View>
+
+            <MapView
+                provider={PROVIDER_GOOGLE}
+                style={styles.map}
+                initialRegion={{
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                    latitudeDelta: 14.5995,
+                    longitudeDelta: 120.9842,
+                }}
+                showsUserLocation={true}
+                loadingEnabled={true}
+                onPress={handleMapPress}
+                mapType="satellite"
+            >
+                <Marker
+                    coordinate={coords}
+                    title={destination}
+                    description="Auto"
+                    pinColor="#10AC84"
+                    onPress={() => {
+                        const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+                        Linking.openURL(url);
+                    }}
+                />
+            </MapView>
+
+            <View style={styles.lowerHalf}>
+                <View style={styles.detailContainer}>
+                    <Text style={styles.destination}>{translation.company} {companyName}</Text>
+                    <Text style={styles.destination}>{translation.destination} {destination}</Text>
+                    <Text style={styles.destination}>{translation.estimatedTime} {estimatedTime}</Text>
+                </View>
+
+                {taskStatus !== 1 ? (
+                    <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptTask}>
+                        <Text style={styles.acceptButtonText}>{translation.acceptTask}</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <>
+                        <TouchableOpacity onPress={pickImage}>
+                            <Text style={styles.uploadText}>
+                                {photoName ? '' : translation.uploadProof}
+                            </Text>
+                        </TouchableOpacity>
+
+                        {photoName && (
+                            <View style={styles.uploadedFileContainer}>
+                                <TouchableOpacity onPress={() => setModalVisible(true)}>
+                                    <Text style={styles.imageName}>{photoName}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => { setPhotoUri(null); setPhotoName(null); }} style={styles.removeButton}>
+                                    <Text style={styles.removeButtonText}>{translation.remove}</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        <TouchableOpacity style={styles.completeButton} onPress={handleCompleteTask}>
+                            <Text style={styles.completeButtonText}>{translation.completeTask}</Text>
+                        </TouchableOpacity>
+                    </>
+                )}
+            </View>
+
+            <Modal visible={modalVisible} transparent={true} animationType="slide">
+                <View style={styles.modalContainer}>
+                    <Image source={{ uri: photoUri }} style={styles.modalImage} resizeMode="contain" />
+                    <TouchableOpacity style={styles.closeButton} onPress={() => setModalVisible(false)}>
+                        <Text style={styles.closeButtonText}>Close</Text>
+                    </TouchableOpacity>
+                </View>
+            </Modal>
+        </View>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#f5f5f5',
+    },
+    upperHalf: {
+        flex: 1,
+        justifyContent: 'flex-start',
+        alignItems: 'flex-start',
+        backgroundColor: '#10AC84',
+        padding: 20,
+        marginBottom: -40,
+    },
+    iconContainer: {
+        position: 'absolute',
+        top: 35,
+        left: 20,
+    },
+    icon: {
+        width: 30,
+        height: 30,
+    },
+    header: {
+        fontSize: 32,
+        fontWeight: 'bold',
+        color: '#fff',
+        marginTop: 50,
+    },
+    lowerHalf: {
+        flex: 2,
+        justifyContent: 'flex-start',
+        alignItems: 'center',
+        padding: 20,
+        marginTop: -20,
+        backgroundColor: '#fff',
+        
+    },
+    detailContainer: {
+        width: '100%',
+        borderWidth: 1,
+        borderColor: '#ccc',
+        padding: 15,
+        borderRadius: 10,
+        marginBottom: 20,
+        backgroundColor: '#fff',
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 2,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 5,
+        elevation: 3,
+    },
+    destination: {
+        fontSize: 18,
+        color: '#333',
+        marginBottom: 10,
+    },
+    map: {
+        width: '100%',
+        height: 400,
+        borderRadius: 10,
+        overflow: 'hidden',
+        marginBottom: 20,
+    },
+    uploadText: {
+        fontSize: 16,
+        color: '#007BFF',
+        marginBottom: 20,
+    },
+    uploadedFileContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        width: '100%',
+        marginTop: -40,
+        marginBottom: 20,
+    },
+    imageName: {
+        fontSize: 16,
+        color: '#007BFF',
+    },
+    removeButton: {
+        marginLeft: 10,
+    },
+    removeButtonText: {
+        color: 'red',
+    },
+    completeButton: {
+        backgroundColor: '#28A745',
+        paddingVertical: 12,
+        paddingHorizontal: 70,
+        borderRadius: 5,
+        marginTop: 10,
+    },
+    completeButtonText: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    acceptButton: {
+        backgroundColor: '#007BFF',
+        paddingVertical: 12,
+        paddingHorizontal: 70,
+        borderRadius: 5,
+        marginTop: 10,
+    },
+    acceptButtonText: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    modalImage: {
+        width: '90%',
+        height: '80%',
+    },
+    closeButton: {
+        marginTop: 20,
+        backgroundColor: '#fff',
+        padding: 10,
+        borderRadius: 5,
+    },
+    closeButtonText: {
+        color: '#007BFF',
+    },
+});
+
+export default AcceptTaskScreen;

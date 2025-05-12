@@ -1,0 +1,473 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { 
+  StyleSheet, 
+  Dimensions, 
+  TouchableWithoutFeedback, 
+  SafeAreaView, 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  Image, 
+  Alert 
+} from 'react-native';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import moment from 'moment';
+import Swiper from 'react-native-swiper';
+import Loading from './Loading';  
+import apiConfig from '../config/apiConfig';
+import { useLanguage } from '../../LanguageContext';  // Import the language context
+
+const { width } = Dimensions.get('window');
+const API_URL = `${apiConfig}/pending-tasks`;
+
+function TodayTaskScreen({ navigation }) {
+  const swiper = useRef(null);
+  const [value, setValue] = useState(new Date());
+  const [week, setWeek] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [selectedTask, setSelectedTask] = useState({
+    plate_no: 'N/A', 
+    model: 'N/A', 
+    truck_no: 'N/A', 
+    images: [],
+    task_no: 'N/A',
+    item: 'N/A',
+    destination: 'N/A',
+  });
+
+  // Use language context to fetch current language
+  const { language } = useLanguage(); 
+
+  // Translations object
+  const translations = {
+    English: {
+      todayTask: 'Today Task',
+      viewTask: 'View Task',
+      noTasks: 'No tasks available for today.',
+      taskId: 'Task ID: ',
+      company: 'Company: ',
+      item: 'Item: ',
+      cubicMeter: 'Cubic Meter: ',
+      destination: 'Destination: ',
+    },
+    Filipino: {
+      todayTask: 'Gawain Ngayon',
+      viewTask: 'Tingnan ang Gawain',
+      noTasks: 'Walang mga gawain para sa araw na ito.',
+      taskId: 'ID ng Gawain: ',
+      company: 'Kumpanya: ',
+      item: 'Item: ',
+      cubicMeter: 'Cubic Meter: ',
+      destination: 'Destinasyon: ',
+    }
+  };
+
+  // Select the correct translation based on the current language
+  const translation = translations[language];
+
+  useEffect(() => {
+    const fetchTasks = async () => {
+        setLoading(true);
+        try {
+          const token = await AsyncStorage.getItem('token');
+          if (!token) {
+            Alert.alert('Error', 'Token is missing. Please log in again.');
+            return;
+          }
+          const response = await axios.get(API_URL, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          if (response.data.length > 0) {
+            const tasksWithImages = response.data.map(task => ({
+              ...task,
+              images: Array.isArray(task.images) ? task.images : []
+            }));
+            setTasks(tasksWithImages);
+            setSelectedTask(tasksWithImages[0]);
+          } else {
+            setTasks([]);
+            setSelectedTask({
+              plate_no: 'N/A',
+              model: 'N/A',
+              truck_no: 'N/A',
+              images: [],
+              task_no: 'N/A',
+              item: 'N/A',
+              destination: 'N/A',
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching tasks:', error);
+          const message = error.response?.data?.message || 'An error occurred while fetching tasks.';
+          Alert.alert('Error', message);
+        } finally {
+          setLoading(false);
+        }
+      };
+    fetchTasks();
+  }, []);
+
+  const weeks = useMemo(() => {
+    const start = moment().add(week, 'weeks').startOf('week');
+    return [-1, 0, 1].map(adj => {
+      return Array.from({ length: 7 }).map((_, index) => {
+        const date = moment(start).add(adj, 'week').add(index, 'day');
+        return {
+          weekday: date.format('ddd'),
+          date: date.toDate(),
+        };
+      });
+    });
+  }, [week]);
+
+  const weekdayLabels = weeks[1].map((item, index) => (
+    <Text key={index} style={styles.itemWeekday}>
+      {item.weekday}
+    </Text>
+  ));
+
+  const currentMonth = moment().format('MMMM YYYY');
+
+  useEffect(() => {
+    setValue(new Date());
+    swiper.current.scrollTo(1, false);
+  }, []);
+
+  const selectTask = (task) => {
+    setSelectedTask(task);
+  };
+
+  if (loading) {
+    return <Loading />;
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1 }}>
+      <View style={styles.upperHalf}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.iconContainer}>
+          <Image
+            source={require("../assets/left-arrow.png")}
+            style={styles.icon}
+          />
+        </TouchableOpacity>
+        <View style={styles.monthLabel}>
+          <Text style={styles.monthText}>{currentMonth}</Text>
+        </View>
+        <View style={styles.weekdayLabelRow}>
+          {weekdayLabels}
+        </View>
+        <View style={styles.picker}>
+          <Swiper
+            index={1}
+            ref={swiper}
+            loop={false}
+            showsPagination={false}
+            onIndexChanged={(ind) => {
+              if (ind === 1) {
+                return;
+              }
+              setTimeout(() => {
+                const newIndex = ind - 1;
+                const newWeek = week + newIndex;
+                setWeek(newWeek);
+                setValue(moment(value).add(newIndex, 'week').toDate());
+                swiper.current.scrollTo(1, false);
+              }, 100);
+            }}>
+            {weeks.map((dates, index) => (
+              <View style={styles.itemRow} key={index}>
+                {dates.map((item, dateIndex) => {
+                  const isActive = value.toDateString() === item.date.toDateString();
+                  return (
+                    <TouchableWithoutFeedback
+                      key={dateIndex}
+                      onPress={() => setValue(item.date)}>
+                      <View
+                        style={[styles.item, isActive && { backgroundColor: '#111', borderColor: '#111' }]}>
+                        <Text
+                          style={[styles.itemDate, isActive && { color: '#fff' }]}>
+                          {item.date.getDate()}
+                        </Text>
+                      </View>
+                    </TouchableWithoutFeedback>
+                  );
+                })}
+              </View>
+            ))}
+          </Swiper>
+        </View>
+      </View>
+      <View style={styles.lowerHalf}>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logo}>{translation.todayTask}</Text>
+        </View>
+        <View style={styles.outlineBox}>
+          {tasks.length > 0 ? (
+            <>
+              <View style={styles.taskContainer}>
+                <View style={styles.truckImageContainer}>
+                  {selectedTask?.images && selectedTask.images.length > 0 ? (
+                    <Image
+                      source={{ uri: selectedTask.images[0] }}
+                      style={styles.truckImg}
+                    />
+                  ) : (
+                    <Image
+                      source={require("../assets/truck.png")}
+                      style={styles.truckImg}
+                    />
+                  )}
+                </View>
+                <Text style={styles.modelTxt}>
+                  {selectedTask ? selectedTask.model : 'N/A'}
+                </Text>
+                <Text style={styles.taskDetailText}>
+                  Truck No: {selectedTask ? selectedTask.truck_no : 'N/A'} 
+                </Text>
+              </View>
+              <View style={styles.taskDetails}>
+                <Text style={styles.taskNoTxt}>
+                  {translation.taskId} <Text style={styles.taskNoGreen}>{selectedTask.task_no}</Text>
+                </Text>
+                <Text style={styles.taskDetailText}>{translation.company} <Text style={styles.taskNoGreen2}>{selectedTask.company_name}</Text></Text>
+                <Text style={styles.taskDetailText}>{translation.item} <Text style={styles.taskNoGreen2}>{selectedTask.item}</Text></Text>
+                <Text style={styles.taskDetailText}>{translation.cubicMeter} <Text style={styles.taskNoGreen}>{selectedTask.cubic_meter}</Text></Text>
+                <Text style={styles.taskDetailText}>{translation.destination} <Text style={styles.taskNoGreen2}>{selectedTask.destination}</Text></Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.acceptButton} 
+                onPress={() => navigation.navigate('acceptTask', { taskNo: selectedTask.task_no })}>
+                <Text style={styles.acceptButtonText}>{translation.viewTask}</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <Text style={styles.loadingText}>{translation.noTasks}</Text>
+          )}
+        </View>
+      </View>
+     {/* Bottom Navigation */}
+     <View style={styles.navigationContainer}>
+        <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('task')}>
+            <Image source={require("../assets/task.png")} style={styles.iconn} />
+            <Text style={styles.iconText}>History</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('dashboard')}>
+            <Image source={require("../assets/home.png")} style={styles.iconn} />
+            <Text style={styles.iconText}>Home</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('profile')}>
+            <Image source={require("../assets/user.png")} style={styles.iconn} />
+            <Text style={styles.iconText}>Profile</Text>
+        </TouchableOpacity>
+    </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  upperHalf: {
+    flex: 1.9,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    backgroundColor: '#10AC84',
+    padding: 20,
+  },
+  iconContainer: {
+    position: 'absolute',
+    top: 35,
+    left: 20,
+  },
+  icon: {
+    fontSize: 30,
+    color: '#fff',
+  },
+  logoContainer: {
+    position: 'absolute',
+    top: 20,
+    left: 30,
+  },
+  logo: {
+    fontSize: 22,
+    fontWeight: 'normal',
+    color: '#10AC84',
+  },
+  monthLabel: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 10,
+    width: '100%',
+    marginTop: 50,
+  },
+  monthText: {
+    fontSize: 24,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  lowerHalf: {
+    flex: 3,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    padding: 20,
+    paddingTop: 40,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    marginTop: -125,
+  },
+  picker: {
+    flex: 1,
+    maxHeight: 74,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  item: {
+    flex: 2,
+    height: 45,
+    marginHorizontal: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    borderWidth: 1,
+    borderRadius: 8,
+    borderColor: '#e3e3e3',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  weekdayLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '90%',
+    marginBottom: 6,
+    alignItems: 'center',
+    marginLeft: 13,
+  },
+  itemWeekday: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#737373',
+  },
+  itemDate: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111',
+  },
+  navigationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: '#19282F',
+},
+navButton: {
+    alignItems: 'center',
+    width: '40%',
+},
+
+iconn: {
+    width: 35,
+    height: 35,
+},
+iconText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: 'bold',
+},
+  outlineBox: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#111',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 10,
+    height: 470,
+  },
+  taskContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  truckImg: {
+    width: 140,
+    height: 140,
+    marginRight: 15,
+    marginLeft: 20,
+    marginBottom: -20,
+  },
+  truckImageContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  modelTxt: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 5,
+  },
+  taskNoTxt: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#737373',
+    marginBottom: 15,
+  },
+  taskNoGreen: {
+    color: 'green',
+  },
+  taskNoGreen2: {
+    color: 'black',
+    marginLeft: 20,
+    fontSize: 16,
+  },
+  taskDetails: {
+    paddingLeft: 18,
+    marginTop: -10,
+  },
+  taskDetailText: {
+    fontSize: 16,
+    marginBottom: 15,
+    color: '#16423C',
+  },
+  acceptButton: {
+    backgroundColor: '#10AC84',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    marginTop: 10,
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  loadingText: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#737373',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+});
+
+export default TodayTaskScreen;

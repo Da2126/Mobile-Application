@@ -1,0 +1,167 @@
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, TouchableOpacity, Text, Image, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiConfig from '../config/apiConfig'; 
+import Loading from './Loading';
+
+const API_URL = `${apiConfig}/tasks`;
+
+function TaskScreen({ navigation }) {
+    const [tasks, setTasks] = useState([]);
+    const [loading, setLoading] = useState(true); // Add loading state
+
+    useEffect(() => {
+        const fetchTasks = async () => {
+            try {
+                const token = await AsyncStorage.getItem('token');
+                if (!token) {
+                    Alert.alert('Error', 'Token is missing. Please log in again.');
+                    return;
+                }
+
+                setLoading(true); // Set loading to true before fetching
+
+                const response = await axios.get(API_URL, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+
+                console.log("Fetched tasks:", response.data); // Debug log
+                setTasks(response.data);
+            } catch (error) {
+                console.error('Error fetching tasks:', error);
+                const message = error.response ? error.response.data.message : 'An error occurred while fetching tasks.';
+                Alert.alert('Error', message);
+            } finally {
+                setLoading(false); // Set loading to false once data is fetched or if error occurs
+            }
+        };
+
+        fetchTasks();
+    }, []);
+
+    if (loading) {
+        return <Loading />;
+    }
+    return (
+        <View style={styles.container}>
+            <View style={styles.upperHalf}>
+                <TouchableOpacity onPress={() => navigation.navigate('dashboard')} style={styles.iconContainer}>
+                    <Image source={require("../assets/left-arrow.png")} style={styles.icon} />
+                </TouchableOpacity>
+                <View style={styles.logoContainer}>
+                    <Text style={styles.logo}>Task History</Text>
+                </View>
+            </View>
+
+            <View style={styles.lowerHalf}>
+                <View style={styles.boxoutline}>
+                    <Text style={styles.label}>Task History</Text>
+                    <View style={styles.headertitle}>
+                        <Text style={styles.headerText}>TASK NO</Text>
+                        <Text style={styles.headerText}>ITEM</Text>
+                        <Text style={styles.headerText}>STATUS</Text>
+                    </View>
+                    <ScrollView style={styles.scrollView}>
+                        {/* Show loading spinner while fetching data */}
+                        {loading ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="large" color="#10AC84" />
+                                <Text style={styles.loadingText}>Loading tasks...</Text>
+                            </View>
+                        ) : (
+                            tasks.length > 0 ? (
+                                tasks.map((task, index) => (
+                                    <View key={task._id} style={styles.informationtext}>
+                                        <Text style={styles.infoNumber}>{index + 1}.</Text>
+                                        <Text style={styles.infoText1}>{task.task_no}</Text>
+                                        <Text style={styles.infoText}>{task.item}</Text>
+                                        <Text style={styles.infoText}>{task.status === 0 ? 'Pending' : 'Completed'}</Text>
+                                    </View>
+                                ))
+                            ) : (
+                                <Text style={styles.noTasks}>No tasks completed.</Text>
+                            )
+                        )}
+                    </ScrollView>
+                </View>
+            </View>
+
+      {/* Bottom Navigation */}
+      <View style={styles.navigationContainer}>
+                <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('task')}>
+                    <Image source={require("../assets/task.png")} style={styles.iconn} />
+                    <Text style={styles.iconText}>History</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('dashboard')}>
+                    <Image source={require("../assets/home.png")} style={styles.iconn} />
+                    <Text style={styles.iconText}>Home</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('profile')}>
+                    <Image source={require("../assets/user.png")} style={styles.iconn} />
+                    <Text style={styles.iconText}>Profile</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: { flex: 1 },
+    upperHalf: { flex: 1, justifyContent: 'flex-start', alignItems: 'flex-start', backgroundColor: '#10AC84', padding: 20 },
+    iconContainer: { position: 'absolute', top: 35, left: 20 },
+    icon: { fontSize: 30, color: '#fff' },
+    logoContainer: { margin: '5%', marginLeft: 40 },
+    logo: { fontSize: 22, color: '#fff' },
+    lowerHalf: { flex: 1, justifyContent: 'flex-start', alignItems: 'center', padding: 20, paddingTop: 40, borderTopLeftRadius: 65, borderTopRightRadius: 65, backgroundColor: '#fff', overflow: 'hidden', marginTop: -500 },
+    boxoutline: { borderWidth: 2, borderColor: '#333', height: '100%', width: '100%', borderRadius: 10, padding: 10 },
+    label: { position: 'absolute', top: -16, left: '30%', fontSize: 25, color: '#10AC84', backgroundColor: '#fff', paddingHorizontal: 5 },
+    headertitle: { flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20 },
+    headerText: { fontSize: 21, color: '#333', textAlign: 'center', flex: 1 },
+    informationtext: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginTop: 10 },
+    infoText: { fontSize: 17, color: '#333', textAlign: 'center', flex: 1 },
+    infoNumber: { marginRight: -10 },
+    infoText1: { fontSize: 17, color: '#10AC84', textAlign: 'center', flex: 1 },
+    scrollView: { maxHeight: 200, marginTop: 20 },
+    noTasks: { fontSize: 17, color: '#333', textAlign: 'center', flex: 1 },
+    navigationContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        padding: 15,
+        backgroundColor: '#19282F',
+    },
+    navButton: {
+        alignItems: 'center',
+        width: '40%',
+    },
+    
+    iconn: {
+        width: 35,
+        height: 35,
+    },
+    iconText: {
+        color: '#fff',
+        textAlign: 'center',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    // New Styles for Loading
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingText: {
+        fontSize: 18,
+        color: '#10AC84',
+        marginTop: 10,
+    },
+});
+
+export default TaskScreen;

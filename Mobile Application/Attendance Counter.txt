@@ -1,0 +1,436 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableWithoutFeedback, Alert, Image, TouchableOpacity } from 'react-native';
+import moment from 'moment-timezone'; // Import moment-timezone
+import axios from 'axios'; 
+import { useAuth } from '../../AuthContext';
+import apiConfig from '../config/apiConfig'; 
+import Loading from './Loading';
+import { useLanguage } from '../../LanguageContext'; // Import the language context
+
+const AttendanceScreen = ({ navigation }) => {
+  const totalDays = 250; // Total days in the period (still hardcoded for now)
+  const [daysAttended, setDaysAttended] = useState(0); 
+  const [loading, setLoading] = useState(true);
+  const [timeOutDates, setTimeOutDates] = useState([]); // State to hold timeOutDates
+  const attendancePercentage = (daysAttended / totalDays) * 100; 
+  const { logout, token } = useAuth();
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  const currentMonth = moment(currentDate).format('MMMM YYYY');
+
+  // Access language context
+  const { language } = useLanguage(); // Get the current language
+
+  // Translations for both English and Filipino
+  const translations = {
+    English: {
+      attendanceSummary: "Attendance Summary",
+      daysAttended: "Days Attended",
+      totalDays: "Total Days",
+      attendance: "Attendance",
+      previousMonth: "Previous Month",
+      nextMonth: "Next Month",
+    },
+    Filipino: {
+      attendanceSummary: "Buod ng Pagdalo",
+      daysAttended: "Araw ng Pagdalo",
+      totalDays: "Kabuuang Araw",
+      attendance: "Pagdalo",
+      previousMonth: "Nakaraang Buwan",
+      nextMonth: "Susunod na Buwan",
+    }
+  };
+
+  const translation = translations[language]; // Get current language translation
+
+  useEffect(() => {
+    const fetchAttendanceData = async () => {
+      try {
+        const response = await axios.get(`${apiConfig}/attendance`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+  
+        // Check if there is no attendance data
+        if (!response.data || !response.data.totalDays) {
+          console.log("No attendance data found.");
+          setLoading(false);
+          setDaysAttended(0);  // Set days attended to 0 since there is no data
+          return;
+        }
+  
+        console.log('API Response:', response.data);
+  
+        const timeOut = response.data.timeOutDates || [];
+        setTimeOutDates(timeOut);
+  
+        const fetchedDaysAttended = response.data.totalDays || 0; 
+        setDaysAttended(fetchedDaysAttended);
+        setLoading(false);
+      } catch (error) {
+    
+        setLoading(false);
+      }
+    };
+  
+    fetchAttendanceData();
+  }, [token]);
+  
+
+  // Get weekday labels (Sun, Mon, Tue, Wed, etc.)
+  const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+    <Text key={index} style={styles.weekdayLabel}>
+      {day}
+    </Text>
+  ));
+
+  const generateDaysInMonth = () => {
+    const daysInMonth = [];
+    const startOfMonth = moment(currentDate).startOf('month'); 
+    const endOfMonth = moment(currentDate).endOf('month'); 
+    let currentDay = startOfMonth.startOf('week'); // Start from the previous Sunday to align the calendar
+    while (currentDay.isBefore(endOfMonth, 'day')) {
+      let week = [];
+      for (let i = 0; i < 7; i++) {
+        const isTimeOut = timeOutDates && Array.isArray(timeOutDates) && timeOutDates.some((date) => {
+          const timeOutDate = moment(date).tz('Asia/Manila').startOf('day');
+          const currentDate = moment(currentDay).tz('Asia/Manila').startOf('day');
+  
+          return timeOutDate.isSame(currentDate); 
+        });
+  
+        week.push({
+          date: currentDay.toDate(),
+          isCurrentMonth: currentDay.month() === moment(currentDate).month(),
+          hasTimeOut: isTimeOut, 
+          dayOfMonth: currentDay.date(), // Store the day number for later use
+        });
+        currentDay = currentDay.add(1, 'day');
+      }
+      daysInMonth.push(week);
+    }
+  
+    return daysInMonth;
+  };
+  
+
+  const daysInMonth = generateDaysInMonth();
+
+  const handleDayPress = (date) => {
+   
+  };
+
+  const goToPreviousMonth = () => {
+    setCurrentDate(prevDate => moment(prevDate).subtract(1, 'month').toDate());
+  };
+
+  const goToNextMonth = () => {
+    setCurrentDate(prevDate => moment(prevDate).add(1, 'month').toDate());
+  };
+
+  if (loading) {
+    return <Loading />;
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.upperHalf}>
+        <TouchableOpacity onPress={() => navigation.navigate('dashboard')} style={styles.iconContainer}>
+          <Image source={require("../assets/left-arrow.png")} style={styles.icon} />
+        </TouchableOpacity>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logo}>Be Consistent!!</Text>
+        </View>
+
+        <View style={styles.attendanceSummary}>
+          <Text style={styles.attendanceTitle}>{translation.attendanceSummary}</Text>
+
+          <View style={styles.progressBar}>
+            <View style={[styles.progressBarFill, { width: `${attendancePercentage}%` }]}/>
+          </View>
+
+          <Text style={styles.percentProg}>{attendancePercentage.toFixed(0)}%</Text>
+
+          <View style={styles.summaryDetails}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>{translation.daysAttended}</Text>
+              <Text style={styles.summaryValue}>{daysAttended}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>{translation.totalDays}</Text>
+              <Text style={styles.summaryValue}>{totalDays}</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.lowerHalf}>
+        <View style={styles.calendarContainer}>
+          <View style={styles.monthLabel}>
+            <TouchableOpacity onPress={goToPreviousMonth}>
+              <Image source={require('../assets/left-arrow.png')} style={styles.icon} />
+            </TouchableOpacity>
+
+            <Text style={styles.monthText}>{currentMonth}</Text>
+
+            <TouchableOpacity onPress={goToNextMonth}>
+              <Image source={require('../assets/right2.png')} style={styles.icon} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.weekdayLabelRow}>
+            {weekdayLabels}
+          </View>
+
+          <View style={styles.daysGrid}>
+            {daysInMonth.map((week, index) => (
+              <View style={styles.itemRow} key={index}>
+                {week.map((day, dayIndex) => {
+                  const isActive = moment(day.date).isSame(currentDate, 'day');
+                  const isInCurrentMonth = day.isCurrentMonth;
+
+                  return (
+                    <TouchableWithoutFeedback key={dayIndex} onPress={() => handleDayPress(day.date)}>
+                      <View
+                        style={[ 
+                          styles.item,
+                          !isInCurrentMonth && styles.disabledItem,
+                          isActive && styles.activeItem,
+                          day.hasTimeOut && styles.timeOutItem,
+                        ]}
+                      >
+                        <Text
+                          style={[ 
+                            styles.itemDate, 
+                            !isInCurrentMonth && styles.disabledItemText, 
+                            isActive && styles.activeItemText 
+                          ]}
+                        >
+                          {moment(day.date).date()}
+                        </Text>
+                      </View>
+                    </TouchableWithoutFeedback>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+
+     {/* Bottom Navigation */}
+     <View style={styles.navigationContainer}>
+        <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('task')}>
+          <Image source={require("../assets/task.png")} style={styles.iconn} />
+          <Text style={styles.iconText}>History</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('dashboard')}>
+          <Image source={require("../assets/home.png")} style={styles.iconn} />
+          <Text style={styles.iconText}>Home</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navButton} onPress={() => navigation.navigate('profile')}>
+          <Image source={require("../assets/user.png")} style={styles.iconn} />
+          <Text style={styles.iconText}>Profile</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  upperHalf: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#10AC84',
+    paddingVertical: 20,
+    paddingHorizontal: 15,
+  },
+  logoContainer: {
+    marginTop: 40,
+    marginLeft: 10,
+  },
+  logo: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  attendanceSummary: {
+    marginTop: 30,
+    padding: 15,
+    borderRadius: 10,
+    width: '100%',
+    borderColor: '#fff', 
+    borderWidth: 2, 
+    position: 'relative', 
+  },
+  attendanceTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    color: '#fff',
+  },
+  progressBar: {
+    height: 10,
+    backgroundColor: '#ccc',
+    borderRadius: 5,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#E0D982', 
+    borderRadius: 5,
+  },
+  percentProg: {
+    position: 'absolute',
+    top: 30,
+    right: 15, 
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  summaryDetails: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  summaryItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    fontSize: 16,
+    color: '#fff', 
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  lowerHalf: {
+    flex: 2,
+    backgroundColor: '#10AC84', 
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingTop: 20,
+    paddingBottom: 10,
+    paddingHorizontal: 15,
+  },
+  calendarContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    overflow: 'hidden',
+    width: '100%',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+  },
+  monthLabel: {
+    alignItems: 'center',
+    marginVertical: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+  },
+  monthText: {
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  weekdayLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 10,
+  },
+  weekdayLabel: {
+    width: 40,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  daysGrid: {
+    marginTop: 10,
+    width: '100%',
+  },
+  itemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  item: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+  },
+  itemDate: {
+    fontSize: 16,
+    color: '#333',
+  },
+  disabledItem: {
+    backgroundColor: '#f0f0f0',
+  },
+  disabledItemText: {
+    color: '#ddd',
+  },
+  activeItem: {
+    backgroundColor: '#10AC84',
+    borderColor: '#10AC84',
+  },
+  activeItemText: {
+    color: '#fff',
+  },
+  timeOutItem: {
+    backgroundColor: '#FF5733', 
+  },
+  redDot: {
+    position: 'absolute',
+    bottom: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'red',
+  },
+  navigationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: '#19282F',
+},
+navButton: {
+    alignItems: 'center',
+    width: '40%',
+},
+
+iconn: {
+    width: 35,
+    height: 35,
+},
+iconText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: 'bold',
+},
+  iconContainer: {
+    position: 'absolute',
+    top: 35,
+    left: 20,
+  },
+  icon: {
+    fontSize: 30,
+    color: '#fff',
+  },
+});
+
+export default AttendanceScreen;
